@@ -1,0 +1,1386 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>Vibe — Chat</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  /* ===== VARIABLES ===== */
+  :root {
+    --bg: #0d0d10;
+    --surface: #16161b;
+    --surface2: #1e1e26;
+    --surface3: #252530;
+    --border: #2a2a38;
+    --accent: #7c6af7;
+    --accent2: #5eead4;
+    --danger: #f87171;
+    --text: #e8e8f0;
+    --text2: #8888a8;
+    --text3: #555568;
+    --online: #4ade80;
+    --radius: 14px;
+    --radius-sm: 8px;
+    --shadow: 0 4px 32px rgba(0,0,0,0.5);
+    --user-color: #7c6af7;
+  }
+  /* Per-user accent colors */
+  .color-0 { --user-color: #7c6af7; }
+  .color-1 { --user-color: #f472b6; }
+  .color-2 { --user-color: #5eead4; }
+  .color-3 { --user-color: #fb923c; }
+  .color-4 { --user-color: #a3e635; }
+  .color-5 { --user-color: #38bdf8; }
+  .color-6 { --user-color: #e879f9; }
+  .color-7 { --user-color: #facc15; }
+
+  /* ===== RESET ===== */
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; overflow: hidden; font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--text); }
+  button { cursor: pointer; border: none; background: none; font-family: inherit; color: inherit; }
+  input, textarea { font-family: inherit; color: inherit; background: none; border: none; outline: none; }
+  a { color: inherit; text-decoration: none; }
+
+  /* ===== SCROLLBAR ===== */
+  ::-webkit-scrollbar { width: 4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+
+  /* ===== LAYOUT ===== */
+  #app { display: flex; height: 100vh; width: 100vw; }
+
+  /* ===== SCREENS ===== */
+  .screen { display: none; width: 100%; height: 100%; }
+  .screen.active { display: flex; }
+
+  /* ===== AUTH SCREEN ===== */
+  #auth-screen {
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    background: var(--bg);
+    padding: 24px;
+    position: relative;
+    overflow: hidden;
+  }
+  #auth-screen::before {
+    content: '';
+    position: absolute;
+    width: 600px; height: 600px;
+    background: radial-gradient(circle, rgba(124,106,247,0.15) 0%, transparent 70%);
+    top: -200px; left: -200px;
+    pointer-events: none;
+  }
+  #auth-screen::after {
+    content: '';
+    position: absolute;
+    width: 400px; height: 400px;
+    background: radial-gradient(circle, rgba(94,234,212,0.1) 0%, transparent 70%);
+    bottom: -100px; right: -100px;
+    pointer-events: none;
+  }
+  .auth-logo {
+    font-family: 'Space Mono', monospace;
+    font-size: 42px;
+    font-weight: 700;
+    letter-spacing: -2px;
+    margin-bottom: 8px;
+    background: linear-gradient(135deg, var(--accent), var(--accent2));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+  .auth-tagline { color: var(--text2); font-size: 15px; margin-bottom: 40px; text-align: center; }
+  .auth-card {
+    width: 100%;
+    max-width: 380px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    padding: 32px;
+    position: relative;
+    z-index: 1;
+    box-shadow: var(--shadow);
+  }
+  .auth-tabs { display: flex; gap: 4px; background: var(--bg); border-radius: var(--radius-sm); padding: 4px; margin-bottom: 28px; }
+  .auth-tab {
+    flex: 1; padding: 9px; border-radius: 6px; font-size: 14px; font-weight: 500;
+    color: var(--text2); transition: all 0.2s;
+  }
+  .auth-tab.active { background: var(--surface2); color: var(--text); }
+  .field { margin-bottom: 16px; }
+  .field label { display: block; font-size: 12px; font-weight: 600; color: var(--text2); letter-spacing: 0.05em; text-transform: uppercase; margin-bottom: 8px; }
+  .field input {
+    width: 100%; background: var(--surface2); border: 1.5px solid var(--border);
+    border-radius: var(--radius-sm); padding: 12px 14px; font-size: 15px; color: var(--text);
+    transition: border-color 0.2s;
+  }
+  .field input:focus { border-color: var(--accent); }
+  .auth-btn {
+    width: 100%; padding: 13px; background: var(--accent); border-radius: var(--radius-sm);
+    font-size: 15px; font-weight: 600; color: #fff; transition: opacity 0.2s, transform 0.1s;
+    margin-top: 4px;
+  }
+  .auth-btn:hover { opacity: 0.9; }
+  .auth-btn:active { transform: scale(0.98); }
+  .auth-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .auth-error { background: rgba(248,113,113,0.1); border: 1px solid rgba(248,113,113,0.3); color: var(--danger); border-radius: var(--radius-sm); padding: 10px 14px; font-size: 13px; margin-bottom: 16px; display: none; }
+
+  /* ===== MAIN SCREEN ===== */
+  #main-screen { flex-direction: row; }
+
+  /* ===== SIDEBAR ===== */
+  #sidebar {
+    width: 300px;
+    min-width: 300px;
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    transition: transform 0.3s;
+  }
+  .sidebar-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 16px 12px;
+    border-bottom: 1px solid var(--border);
+  }
+  .logo-small {
+    font-family: 'Space Mono', monospace;
+    font-size: 20px;
+    font-weight: 700;
+    background: linear-gradient(135deg, var(--accent), var(--accent2));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+  .header-actions { display: flex; gap: 4px; }
+  .icon-btn {
+    width: 34px; height: 34px; border-radius: var(--radius-sm);
+    display: flex; align-items: center; justify-content: center;
+    color: var(--text2); transition: all 0.15s; font-size: 18px;
+  }
+  .icon-btn:hover { background: var(--surface2); color: var(--text); }
+
+  /* Sidebar tabs */
+  .sidebar-tabs { display: flex; border-bottom: 1px solid var(--border); }
+  .sidebar-tab {
+    flex: 1; padding: 12px 8px; font-size: 13px; font-weight: 600;
+    color: var(--text3); text-align: center; border-bottom: 2px solid transparent;
+    transition: all 0.15s;
+  }
+  .sidebar-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+  /* Online indicator */
+  .online-bar {
+    padding: 8px 16px;
+    font-size: 12px;
+    color: var(--text3);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    border-bottom: 1px solid var(--border);
+  }
+  .online-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--online); box-shadow: 0 0 6px var(--online); }
+
+  /* Channel/DM list */
+  .list-section { flex: 1; overflow-y: auto; padding: 8px; }
+  .list-label { font-size: 11px; font-weight: 600; letter-spacing: 0.08em; color: var(--text3); text-transform: uppercase; padding: 8px 8px 4px; }
+  .channel-item, .dm-item {
+    display: flex; align-items: center; gap: 10px;
+    padding: 9px 10px; border-radius: var(--radius-sm);
+    cursor: pointer; transition: background 0.1s; position: relative;
+  }
+  .channel-item:hover, .dm-item:hover { background: var(--surface2); }
+  .channel-item.active, .dm-item.active { background: var(--surface3); }
+  .channel-hash { font-size: 18px; color: var(--text3); font-family: 'Space Mono', monospace; }
+  .channel-name { font-size: 14px; font-weight: 500; color: var(--text2); flex: 1; }
+  .channel-item.active .channel-name, .dm-item.active .dm-name { color: var(--text); }
+  .unread-badge {
+    background: var(--accent); color: #fff;
+    font-size: 11px; font-weight: 700;
+    border-radius: 10px; padding: 2px 7px; min-width: 20px; text-align: center;
+  }
+  .dm-avatar {
+    width: 32px; height: 32px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 14px; font-weight: 700; flex-shrink: 0;
+    background: var(--surface3); position: relative;
+  }
+  .dm-avatar .status-ring {
+    position: absolute; bottom: -1px; right: -1px;
+    width: 10px; height: 10px; border-radius: 50%;
+    background: var(--online); border: 2px solid var(--surface);
+  }
+  .dm-name { font-size: 14px; font-weight: 500; color: var(--text2); flex: 1; }
+
+  /* User profile at bottom */
+  .sidebar-footer {
+    padding: 10px 12px;
+    border-top: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .my-avatar {
+    width: 36px; height: 36px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 15px; font-weight: 700; flex-shrink: 0;
+    background: var(--accent); color: #fff;
+  }
+  .my-info { flex: 1; min-width: 0; }
+  .my-name { font-size: 14px; font-weight: 600; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .my-status { font-size: 12px; color: var(--text3); }
+  .logout-btn { color: var(--text3); font-size: 18px; padding: 4px; border-radius: 6px; transition: all 0.15s; }
+  .logout-btn:hover { color: var(--danger); background: rgba(248,113,113,0.1); }
+
+  /* ===== CHAT AREA ===== */
+  #chat-area {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    min-width: 0;
+  }
+  .chat-header {
+    padding: 14px 20px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    background: var(--surface);
+    flex-shrink: 0;
+  }
+  .menu-btn { display: none; font-size: 22px; color: var(--text2); }
+  .chat-channel-info { flex: 1; min-width: 0; }
+  .chat-channel-name { font-size: 16px; font-weight: 600; color: var(--text); }
+  .chat-channel-desc { font-size: 12px; color: var(--text3); }
+  .chat-header-actions { display: flex; gap: 4px; }
+
+  /* Messages */
+  #messages {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .msg-group { margin-top: 12px; }
+  .msg-group:first-child { margin-top: 0; }
+  .msg-header { display: flex; align-items: baseline; gap: 10px; margin-bottom: 4px; padding-left: 48px; }
+  .msg-author { font-size: 14px; font-weight: 600; }
+  .msg-time { font-size: 11px; color: var(--text3); }
+  .msg-row { display: flex; align-items: flex-start; gap: 10px; padding: 2px 0; }
+  .msg-row:hover .msg-bubble { background: var(--surface2); }
+  .msg-avatar {
+    width: 36px; height: 36px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 14px; font-weight: 700; flex-shrink: 0; margin-top: 2px;
+  }
+  .msg-avatar.hidden { visibility: hidden; }
+  .msg-content { flex: 1; min-width: 0; }
+  .msg-bubble {
+    padding: 8px 12px; border-radius: 12px 12px 12px 4px;
+    font-size: 15px; line-height: 1.55; color: var(--text);
+    transition: background 0.1s; word-break: break-word;
+    display: inline-block; max-width: 100%;
+  }
+  .msg-row.own .msg-avatar { order: 2; }
+  .msg-row.own .msg-content { text-align: right; }
+  .msg-row.own .msg-bubble {
+    background: rgba(124,106,247,0.2);
+    border-radius: 12px 12px 4px 12px;
+    text-align: left;
+  }
+  .msg-row.own .msg-header { justify-content: flex-end; padding-left: 0; padding-right: 48px; }
+  .msg-date-divider {
+    display: flex; align-items: center; gap: 12px;
+    color: var(--text3); font-size: 12px; font-weight: 600; margin: 16px 0;
+  }
+  .msg-date-divider::before, .msg-date-divider::after {
+    content: ''; flex: 1; height: 1px; background: var(--border);
+  }
+
+  /* Typing indicator */
+  #typing-bar {
+    padding: 4px 20px 6px;
+    font-size: 12px;
+    color: var(--text3);
+    min-height: 24px;
+    flex-shrink: 0;
+  }
+  .typing-dots span {
+    display: inline-block; width: 4px; height: 4px; border-radius: 50%;
+    background: var(--text3); margin: 0 1px;
+    animation: typing-bounce 1.2s infinite;
+  }
+  .typing-dots span:nth-child(2) { animation-delay: 0.2s; }
+  .typing-dots span:nth-child(3) { animation-delay: 0.4s; }
+  @keyframes typing-bounce {
+    0%, 60%, 100% { transform: translateY(0); }
+    30% { transform: translateY(-4px); }
+  }
+
+  /* Input area */
+  .chat-input-area {
+    padding: 12px 16px 16px;
+    flex-shrink: 0;
+  }
+  .chat-input-box {
+    background: var(--surface2);
+    border: 1.5px solid var(--border);
+    border-radius: var(--radius);
+    display: flex;
+    align-items: flex-end;
+    gap: 10px;
+    padding: 10px 12px;
+    transition: border-color 0.2s;
+  }
+  .chat-input-box:focus-within { border-color: var(--accent); }
+  #msg-input {
+    flex: 1; font-size: 15px; color: var(--text); resize: none;
+    line-height: 1.5; max-height: 120px; min-height: 24px;
+    background: transparent;
+  }
+  #msg-input::placeholder { color: var(--text3); }
+  .input-actions { display: flex; gap: 4px; align-items: flex-end; }
+  .emoji-btn { color: var(--text3); font-size: 20px; padding: 2px; border-radius: 6px; transition: all 0.15s; line-height: 1; }
+  .emoji-btn:hover { color: var(--text); }
+  .send-btn {
+    width: 34px; height: 34px; border-radius: var(--radius-sm);
+    background: var(--accent); color: #fff;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 16px; transition: all 0.15s; flex-shrink: 0;
+  }
+  .send-btn:hover { opacity: 0.9; transform: scale(1.05); }
+  .send-btn:disabled { opacity: 0.4; transform: none; }
+
+  /* ===== EMOJI PICKER ===== */
+  .emoji-picker {
+    position: absolute; bottom: 80px; right: 16px;
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 12px;
+    display: none; flex-wrap: wrap; gap: 4px;
+    max-width: 280px; box-shadow: var(--shadow); z-index: 100;
+  }
+  .emoji-picker.open { display: flex; }
+  .emoji-option { font-size: 22px; padding: 4px; border-radius: 6px; cursor: pointer; transition: background 0.1s; }
+  .emoji-option:hover { background: var(--surface2); }
+
+  /* ===== PANELS ===== */
+  /* Right panel: friends/settings */
+  #right-panel {
+    width: 280px;
+    min-width: 280px;
+    background: var(--surface);
+    border-left: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    overflow: hidden;
+    transform: translateX(100%);
+    transition: transform 0.3s;
+    position: absolute;
+    right: 0; top: 0;
+    z-index: 50;
+  }
+  #right-panel.open { transform: translateX(0); position: relative; }
+  .panel-header {
+    padding: 16px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .panel-title { font-size: 16px; font-weight: 600; }
+  .panel-close { color: var(--text3); font-size: 20px; border-radius: 6px; padding: 2px 6px; }
+  .panel-close:hover { background: var(--surface2); color: var(--text); }
+  .panel-body { flex: 1; overflow-y: auto; padding: 12px; }
+
+  /* Friends panel */
+  .friend-search-box {
+    display: flex; gap: 8px; margin-bottom: 12px;
+  }
+  .friend-search-box input {
+    flex: 1; background: var(--surface2); border: 1.5px solid var(--border);
+    border-radius: var(--radius-sm); padding: 9px 12px; font-size: 14px;
+    color: var(--text); transition: border-color 0.2s;
+  }
+  .friend-search-box input:focus { border-color: var(--accent); }
+  .add-friend-btn {
+    background: var(--accent); color: #fff; border-radius: var(--radius-sm);
+    padding: 9px 14px; font-size: 14px; font-weight: 600; transition: opacity 0.15s;
+  }
+  .add-friend-btn:hover { opacity: 0.9; }
+  .friend-item {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px; border-radius: var(--radius-sm); cursor: pointer; transition: background 0.1s;
+  }
+  .friend-item:hover { background: var(--surface2); }
+  .friend-info { flex: 1; min-width: 0; }
+  .friend-name { font-size: 14px; font-weight: 500; }
+  .friend-status { font-size: 12px; color: var(--text3); }
+  .friend-actions { display: flex; gap: 4px; }
+  .friend-btn {
+    width: 28px; height: 28px; border-radius: 6px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 14px; transition: all 0.15s;
+  }
+  .friend-btn.accept { background: rgba(74,222,128,0.15); color: #4ade80; }
+  .friend-btn.accept:hover { background: rgba(74,222,128,0.25); }
+  .friend-btn.reject, .friend-btn.remove { background: rgba(248,113,113,0.15); color: var(--danger); }
+  .friend-btn.reject:hover, .friend-btn.remove:hover { background: rgba(248,113,113,0.25); }
+  .friend-btn.dm { background: rgba(124,106,247,0.15); color: var(--accent); }
+  .friend-btn.dm:hover { background: rgba(124,106,247,0.25); }
+  .section-label { font-size: 11px; font-weight: 600; letter-spacing: 0.08em; color: var(--text3); text-transform: uppercase; padding: 8px 8px 4px; }
+
+  /* ===== SETTINGS PANEL ===== */
+  .settings-section { margin-bottom: 20px; }
+  .settings-label { font-size: 11px; font-weight: 600; letter-spacing: 0.08em; color: var(--text3); text-transform: uppercase; margin-bottom: 10px; }
+  .color-grid { display: flex; gap: 8px; flex-wrap: wrap; }
+  .color-swatch {
+    width: 32px; height: 32px; border-radius: 50%; cursor: pointer;
+    border: 3px solid transparent; transition: all 0.15s;
+  }
+  .color-swatch.selected { border-color: var(--text); transform: scale(1.15); }
+  .settings-row {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 0; border-bottom: 1px solid var(--border);
+  }
+  .settings-row:last-child { border-bottom: none; }
+  .settings-row-label { font-size: 14px; color: var(--text2); }
+  .toggle {
+    width: 42px; height: 24px; background: var(--surface3);
+    border-radius: 12px; position: relative; cursor: pointer; transition: background 0.2s;
+  }
+  .toggle.on { background: var(--accent); }
+  .toggle::after {
+    content: ''; position: absolute; top: 3px; left: 3px;
+    width: 18px; height: 18px; border-radius: 50%; background: #fff;
+    transition: transform 0.2s;
+  }
+  .toggle.on::after { transform: translateX(18px); }
+  .status-options { display: flex; gap: 6px; }
+  .status-opt {
+    padding: 5px 10px; border-radius: var(--radius-sm);
+    font-size: 12px; font-weight: 600; background: var(--surface3);
+    color: var(--text2); cursor: pointer; transition: all 0.15s;
+  }
+  .status-opt.active { color: var(--text); }
+  .status-opt[data-s="online"].active { background: rgba(74,222,128,0.2); color: #4ade80; }
+  .status-opt[data-s="away"].active { background: rgba(250,204,21,0.2); color: #facc15; }
+  .status-opt[data-s="dnd"].active { background: rgba(248,113,113,0.2); color: var(--danger); }
+
+  /* ===== TOAST ===== */
+  #toast-container { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); z-index: 999; display: flex; flex-direction: column; gap: 8px; align-items: center; }
+  .toast {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius-sm); padding: 10px 18px;
+    font-size: 14px; font-weight: 500; color: var(--text);
+    box-shadow: var(--shadow); animation: toast-in 0.3s ease;
+    white-space: nowrap;
+  }
+  .toast.success { border-color: rgba(74,222,128,0.4); color: #4ade80; }
+  .toast.error { border-color: rgba(248,113,113,0.4); color: var(--danger); }
+  @keyframes toast-in { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+
+  /* ===== MOBILE ===== */
+  @media (max-width: 768px) {
+    #sidebar {
+      position: absolute; z-index: 60; left: 0; top: 0;
+      transform: translateX(-100%);
+      box-shadow: var(--shadow);
+    }
+    #sidebar.mobile-open { transform: translateX(0); }
+    .menu-btn { display: flex !important; }
+    #right-panel { min-width: 260px; width: 80vw; }
+    .sidebar-overlay {
+      position: fixed; inset: 0; background: rgba(0,0,0,0.5);
+      z-index: 55; display: none;
+    }
+    .sidebar-overlay.active { display: block; }
+  }
+  @media (max-width: 480px) {
+    #right-panel { width: 100vw; min-width: unset; }
+    .auth-card { padding: 24px 20px; }
+  }
+
+  /* ===== MISC ===== */
+  .empty-state { display: flex; flex-direction: column; align-items: center; justify-content: center; flex: 1; color: var(--text3); gap: 8px; }
+  .empty-icon { font-size: 40px; }
+  .empty-text { font-size: 14px; }
+  .loading-spinner {
+    width: 36px; height: 36px; border: 3px solid var(--border);
+    border-top-color: var(--accent); border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* Notification dot on friend icon */
+  .notif-dot {
+    width: 8px; height: 8px; border-radius: 50%; background: var(--danger);
+    position: absolute; top: 2px; right: 2px; border: 2px solid var(--surface);
+    display: none;
+  }
+  .has-notif .notif-dot { display: block; }
+</style>
+</head>
+<body>
+
+<div id="app">
+
+  <!-- ===== AUTH SCREEN ===== -->
+  <div id="auth-screen" class="screen active">
+    <div class="auth-logo">vibe.</div>
+    <p class="auth-tagline">Real conversations, real people.</p>
+    <div class="auth-card">
+      <div class="auth-tabs">
+        <button class="auth-tab active" id="tab-login" onclick="switchTab('login')">Sign In</button>
+        <button class="auth-tab" id="tab-register" onclick="switchTab('register')">Create Account</button>
+      </div>
+      <div id="auth-error" class="auth-error"></div>
+      <div class="field">
+        <label>Username</label>
+        <input type="text" id="auth-username" placeholder="your_username" autocomplete="username" autocorrect="off" autocapitalize="off" spellcheck="false">
+      </div>
+      <div class="field" id="display-name-field" style="display:none">
+        <label>Display Name</label>
+        <input type="text" id="auth-displayname" placeholder="How others see you">
+      </div>
+      <div class="field">
+        <label>Password</label>
+        <input type="password" id="auth-password" placeholder="••••••••" autocomplete="current-password">
+      </div>
+      <button class="auth-btn" id="auth-submit-btn" onclick="handleAuth()">Sign In</button>
+    </div>
+  </div>
+
+  <!-- ===== MAIN SCREEN ===== -->
+  <div id="main-screen" class="screen">
+    <div class="sidebar-overlay" id="sidebar-overlay" onclick="closeSidebar()"></div>
+
+    <!-- Sidebar -->
+    <div id="sidebar">
+      <div class="sidebar-header">
+        <span class="logo-small">vibe.</span>
+        <div class="header-actions">
+          <button class="icon-btn has-notif" id="friends-btn" onclick="openPanel('friends')" title="Friends" style="position:relative">
+            👥 <span class="notif-dot" id="friend-notif"></span>
+          </button>
+          <button class="icon-btn" onclick="openPanel('settings')" title="Settings">⚙️</button>
+        </div>
+      </div>
+
+      <div class="online-bar">
+        <span class="online-dot"></span>
+        <span id="online-count">0 online</span>
+      </div>
+
+      <div class="sidebar-tabs">
+        <button class="sidebar-tab active" id="stab-channels" onclick="switchSideTab('channels')">Channels</button>
+        <button class="sidebar-tab" id="stab-dms" onclick="switchSideTab('dms')">DMs</button>
+      </div>
+
+      <div class="list-section" id="sidebar-list">
+        <!-- populated by JS -->
+      </div>
+
+      <div class="sidebar-footer">
+        <div class="my-avatar" id="my-avatar">?</div>
+        <div class="my-info">
+          <div class="my-name" id="my-name">—</div>
+          <div class="my-status" id="my-status-label">● Online</div>
+        </div>
+        <button class="logout-btn icon-btn" onclick="logout()" title="Log out">↩</button>
+      </div>
+    </div>
+
+    <!-- Chat Area -->
+    <div id="chat-area">
+      <div class="chat-header">
+        <button class="menu-btn icon-btn" onclick="toggleSidebar()">☰</button>
+        <div class="chat-channel-info">
+          <div class="chat-channel-name" id="chat-channel-name"># general</div>
+          <div class="chat-channel-desc" id="chat-channel-desc">Welcome to the global chat</div>
+        </div>
+        <div class="chat-header-actions">
+          <button class="icon-btn" onclick="openPanel('friends')" title="Friends" style="position:relative">
+            👥 <span class="notif-dot" id="friend-notif2"></span>
+          </button>
+        </div>
+      </div>
+
+      <div id="messages">
+        <div class="empty-state">
+          <div class="loading-spinner"></div>
+        </div>
+      </div>
+
+      <div id="typing-bar"></div>
+
+      <div class="chat-input-area" style="position:relative">
+        <div class="emoji-picker" id="emoji-picker">
+          <!-- emojis inserted by JS -->
+        </div>
+        <div class="chat-input-box">
+          <textarea id="msg-input" placeholder="Message..." rows="1"
+            oninput="autoResize(this); handleTyping()"
+            onkeydown="handleInputKey(event)"></textarea>
+          <div class="input-actions">
+            <button class="emoji-btn" onclick="toggleEmojiPicker(event)">😊</button>
+            <button class="send-btn" id="send-btn" onclick="sendMessage()" disabled>
+              ➤
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Right Panel -->
+    <div id="right-panel">
+      <div class="panel-header">
+        <span class="panel-title" id="panel-title">Friends</span>
+        <button class="panel-close icon-btn" onclick="closePanel()">✕</button>
+      </div>
+      <div class="panel-body" id="panel-body">
+        <!-- populated by JS -->
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="toast-container"></div>
+
+<script>
+// ============================================================
+//  CONFIG — paste your Supabase URL & anon key here
+// ============================================================
+const SUPABASE_URL =  'https://djsjmkxdcshwdcgjjqgl.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRqc2pta3hkY3Nod2RjZ2pqcWdsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk2Mzc4MjIsImV4cCI6MjA5NTIxMzgyMn0.MW41C3Nrf7kA85yOCFiyZilq-yC5gAVNajWT-xP4Ew0';
+
+// ============================================================
+//  INIT
+// ============================================================
+const { createClient } = supabase;
+const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+let currentUser = null;
+let currentChannel = { id: 'general', name: 'general', type: 'channel' };
+let messagesSub = null;
+let typingSub = null;
+let presenceSub = null;
+let typingTimeout = null;
+let typingUsers = {};
+let onlineUsers = {};
+let friendRequests = [];
+let friends = [];
+let unreadDMs = {};
+let currentTab = 'channels';
+let rightPanelMode = null;
+let dmChannels = [];
+
+const CHANNELS = [
+  { id: 'general', name: 'general', desc: 'The main hangout' },
+  { id: 'random', name: 'random', desc: 'Anything goes' },
+  { id: 'gaming', name: 'gaming', desc: 'Talk about games' },
+  { id: 'music', name: 'music', desc: 'Share your playlists' },
+  { id: 'tech', name: 'tech', desc: 'Tech talk' },
+];
+
+const EMOJIS = ['😀','😂','😍','🥰','😎','🤔','😢','😡','🥳','🎉','🔥','❤️','👍','👎','🙏','💯','✨','🎮','🎵','💻','🚀','🌙','⭐','🌈','🍕','☕','🧠','👀','💀','🤣'];
+
+const USER_COLORS = ['#7c6af7','#f472b6','#5eead4','#fb923c','#a3e635','#38bdf8','#e879f9','#facc15'];
+
+// ============================================================
+//  AUTH
+// ============================================================
+let authMode = 'login';
+function switchTab(mode) {
+  authMode = mode;
+  document.getElementById('tab-login').classList.toggle('active', mode === 'login');
+  document.getElementById('tab-register').classList.toggle('active', mode === 'register');
+  document.getElementById('auth-submit-btn').textContent = mode === 'login' ? 'Sign In' : 'Create Account';
+  document.getElementById('display-name-field').style.display = mode === 'register' ? 'block' : 'none';
+  document.getElementById('auth-error').style.display = 'none';
+}
+
+document.getElementById('auth-password').addEventListener('keydown', e => {
+  if (e.key === 'Enter') handleAuth();
+});
+
+async function handleAuth() {
+  const username = document.getElementById('auth-username').value.trim().toLowerCase();
+  const password = document.getElementById('auth-password').value;
+  const displayName = document.getElementById('auth-displayname').value.trim();
+  const errEl = document.getElementById('auth-error');
+  const btn = document.getElementById('auth-submit-btn');
+
+  if (!username || !password) { showAuthError('Please fill in all fields.'); return; }
+  if (username.length < 3) { showAuthError('Username must be at least 3 characters.'); return; }
+  if (password.length < 4) { showAuthError('Password must be at least 4 characters.'); return; }
+  if (authMode === 'register' && !displayName) { showAuthError('Please enter a display name.'); return; }
+
+  btn.disabled = true;
+  btn.textContent = authMode === 'login' ? 'Signing in…' : 'Creating account…';
+
+  try {
+    if (authMode === 'register') {
+      // Check if username taken
+      const { data: existing } = await sb.from('users').select('id').eq('username', username).single();
+      if (existing) { showAuthError('Username already taken.'); btn.disabled = false; btn.textContent = 'Create Account'; return; }
+      const colorIndex = Math.floor(Math.random() * USER_COLORS.length);
+      const { data, error } = await sb.from('users').insert({
+        username, display_name: displayName, password_hash: btoa(password), color_index: colorIndex, status: 'online'
+      }).select().single();
+      if (error) throw error;
+      currentUser = data;
+    } else {
+      const { data, error } = await sb.from('users').select('*').eq('username', username).eq('password_hash', btoa(password)).single();
+      if (error || !data) { showAuthError('Invalid username or password.'); btn.disabled = false; btn.textContent = 'Sign In'; return; }
+      currentUser = data;
+    }
+    localStorage.setItem('vibe_user_id', currentUser.id);
+    await sb.from('users').update({ status: 'online', last_seen: new Date().toISOString() }).eq('id', currentUser.id);
+    enterApp();
+  } catch (e) {
+    showAuthError(e.message || 'Something went wrong.');
+    btn.disabled = false;
+    btn.textContent = authMode === 'login' ? 'Sign In' : 'Create Account';
+  }
+}
+
+function showAuthError(msg) {
+  const el = document.getElementById('auth-error');
+  el.textContent = msg; el.style.display = 'block';
+}
+
+async function tryAutoLogin() {
+  const uid = localStorage.getItem('vibe_user_id');
+  if (!uid) return;
+  const { data } = await sb.from('users').select('*').eq('id', uid).single();
+  if (data) { currentUser = data; enterApp(); }
+}
+
+// ============================================================
+//  APP SETUP
+// ============================================================
+async function enterApp() {
+  document.getElementById('auth-screen').classList.remove('active');
+  document.getElementById('main-screen').classList.add('active');
+
+  // Set user info in sidebar
+  const initials = currentUser.display_name.split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase();
+  document.getElementById('my-avatar').textContent = initials;
+  document.getElementById('my-avatar').style.background = USER_COLORS[currentUser.color_index] || '#7c6af7';
+  document.getElementById('my-name').textContent = currentUser.display_name;
+
+  // Apply saved accent
+  const savedAccent = localStorage.getItem('vibe_accent');
+  if (savedAccent) document.documentElement.style.setProperty('--accent', savedAccent);
+
+  setupEmojiPicker();
+  renderSidebarList();
+  await loadFriends();
+  setupPresence();
+  switchToChannel(CHANNELS[0]);
+}
+
+async function logout() {
+  if (currentUser) await sb.from('users').update({ status: 'offline', last_seen: new Date().toISOString() }).eq('id', currentUser.id);
+  localStorage.removeItem('vibe_user_id');
+  currentUser = null;
+  messagesSub && sb.removeChannel(messagesSub);
+  typingSub && sb.removeChannel(typingSub);
+  presenceSub && sb.removeChannel(presenceSub);
+  location.reload();
+}
+
+// ============================================================
+//  SIDEBAR
+// ============================================================
+function renderSidebarList() {
+  const el = document.getElementById('sidebar-list');
+  el.innerHTML = '';
+
+  if (currentTab === 'channels') {
+    el.innerHTML = `<div class="list-label">Channels</div>`;
+    CHANNELS.forEach(ch => {
+      const div = document.createElement('div');
+      div.className = 'channel-item' + (currentChannel.id === ch.id ? ' active' : '');
+      div.innerHTML = `<span class="channel-hash">#</span><span class="channel-name">${ch.name}</span>`;
+      div.onclick = () => switchToChannel(ch);
+      el.appendChild(div);
+    });
+  } else {
+    el.innerHTML = `<div class="list-label">Direct Messages</div>`;
+    if (friends.length === 0) {
+      el.innerHTML += `<div style="padding:16px 8px;color:var(--text3);font-size:13px">Add friends to start DMs!</div>`;
+    }
+    friends.forEach(f => {
+      const dmId = getDMChannelId(currentUser.id, f.id);
+      const isActive = currentChannel.type === 'dm' && currentChannel.id === dmId;
+      const isOnline = onlineUsers[f.id];
+      const initials = f.display_name.split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase();
+      const div = document.createElement('div');
+      div.className = 'dm-item' + (isActive ? ' active' : '');
+      const unread = unreadDMs[dmId] ? `<span class="unread-badge">${unreadDMs[dmId]}</span>` : '';
+      div.innerHTML = `
+        <div class="dm-avatar color-${f.color_index}" style="background:${USER_COLORS[f.color_index]||'#7c6af7'};color:#fff">
+          ${initials}
+          ${isOnline ? '<span class="status-ring"></span>' : ''}
+        </div>
+        <span class="dm-name">${f.display_name}</span>
+        ${unread}
+      `;
+      div.onclick = () => switchToDM(f);
+      el.appendChild(div);
+    });
+  }
+}
+
+function switchSideTab(tab) {
+  currentTab = tab;
+  document.getElementById('stab-channels').classList.toggle('active', tab === 'channels');
+  document.getElementById('stab-dms').classList.toggle('active', tab === 'dms');
+  renderSidebarList();
+}
+
+function toggleSidebar() {
+  document.getElementById('sidebar').classList.toggle('mobile-open');
+  document.getElementById('sidebar-overlay').classList.toggle('active');
+}
+function closeSidebar() {
+  document.getElementById('sidebar').classList.remove('mobile-open');
+  document.getElementById('sidebar-overlay').classList.remove('active');
+}
+
+// ============================================================
+//  CHANNEL / DM SWITCHING
+// ============================================================
+async function switchToChannel(ch) {
+  currentChannel = { id: ch.id, name: ch.name, type: 'channel', desc: ch.desc };
+  document.getElementById('chat-channel-name').textContent = `# ${ch.name}`;
+  document.getElementById('chat-channel-desc').textContent = ch.desc;
+  renderSidebarList();
+  closeSidebar();
+  await loadMessages();
+  subscribeToMessages();
+  subscribeToTyping();
+}
+
+async function switchToDM(friend) {
+  const dmId = getDMChannelId(currentUser.id, friend.id);
+  currentChannel = { id: dmId, name: friend.display_name, type: 'dm', friendId: friend.id, desc: `Private conversation with ${friend.display_name}` };
+  document.getElementById('chat-channel-name').textContent = `💬 ${friend.display_name}`;
+  document.getElementById('chat-channel-desc').textContent = `Direct message`;
+  delete unreadDMs[dmId];
+  renderSidebarList();
+  closeSidebar();
+  closePanel();
+  await loadMessages();
+  subscribeToMessages();
+  subscribeToTyping();
+}
+
+function getDMChannelId(a, b) {
+  return [a, b].sort().join('__dm__');
+}
+
+// ============================================================
+//  MESSAGES
+// ============================================================
+async function loadMessages() {
+  document.getElementById('messages').innerHTML = `<div class="empty-state"><div class="loading-spinner"></div></div>`;
+  const { data, error } = await sb.from('messages')
+    .select('*, users(display_name, color_index)')
+    .eq('channel_id', currentChannel.id)
+    .order('created_at', { ascending: true })
+    .limit(100);
+  if (error) { document.getElementById('messages').innerHTML = `<div class="empty-state"><span class="empty-icon">⚠️</span><span class="empty-text">Could not load messages</span></div>`; return; }
+  renderMessages(data || []);
+}
+
+function renderMessages(msgs) {
+  const container = document.getElementById('messages');
+  if (!msgs || msgs.length === 0) {
+    container.innerHTML = `<div class="empty-state"><span class="empty-icon">💬</span><span class="empty-text">No messages yet. Say hi!</span></div>`;
+    return;
+  }
+  container.innerHTML = '';
+  let lastAuthor = null, lastDate = null;
+
+  msgs.forEach((msg, i) => {
+    const date = new Date(msg.created_at);
+    const dateStr = date.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' });
+    if (dateStr !== lastDate) {
+      const div = document.createElement('div');
+      div.className = 'msg-date-divider'; div.textContent = dateStr;
+      container.appendChild(div);
+      lastDate = dateStr; lastAuthor = null;
+    }
+    const isOwn = msg.user_id === currentUser?.id;
+    const user = msg.users || {};
+    const displayName = user.display_name || 'Unknown';
+    const colorIdx = user.color_index ?? 0;
+    const color = USER_COLORS[colorIdx] || '#7c6af7';
+    const initials = displayName.split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase();
+    const sameAuthor = lastAuthor === msg.user_id;
+    const timeStr = date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+
+    const row = document.createElement('div');
+    row.className = 'msg-row' + (isOwn ? ' own' : '');
+
+    const avatarEl = `<div class="msg-avatar${sameAuthor ? ' hidden' : ''}" style="background:${color};color:#fff">${initials}</div>`;
+    const headerEl = sameAuthor ? '' : `<div class="msg-header"><span class="msg-author" style="color:${color}">${displayName}</span><span class="msg-time">${timeStr}</span></div>`;
+
+    row.innerHTML = `
+      ${avatarEl}
+      <div class="msg-content">
+        ${headerEl}
+        <div class="msg-bubble">${escapeHTML(msg.content)}</div>
+      </div>
+    `;
+    container.appendChild(row);
+    lastAuthor = msg.user_id;
+  });
+
+  container.scrollTop = container.scrollHeight;
+}
+
+function subscribeToMessages() {
+  messagesSub && sb.removeChannel(messagesSub);
+  messagesSub = sb.channel(`messages:${currentChannel.id}`)
+    .on('postgres_changes', {
+      event: 'INSERT', schema: 'public', table: 'messages',
+      filter: `channel_id=eq.${currentChannel.id}`
+    }, async payload => {
+      const msg = payload.new;
+      const { data: userData } = await sb.from('users').select('display_name, color_index').eq('id', msg.user_id).single();
+      msg.users = userData;
+      appendMessage(msg);
+    })
+    .subscribe();
+}
+
+function appendMessage(msg) {
+  const container = document.getElementById('messages');
+  const isEmpty = container.querySelector('.empty-state');
+  if (isEmpty) container.innerHTML = '';
+
+  const isOwn = msg.user_id === currentUser?.id;
+  const user = msg.users || {};
+  const displayName = user.display_name || 'Unknown';
+  const colorIdx = user.color_index ?? 0;
+  const color = USER_COLORS[colorIdx] || '#7c6af7';
+  const initials = displayName.split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase();
+  const date = new Date(msg.created_at);
+  const timeStr = date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+
+  const row = document.createElement('div');
+  row.className = 'msg-row' + (isOwn ? ' own' : '');
+  row.innerHTML = `
+    <div class="msg-avatar" style="background:${color};color:#fff">${initials}</div>
+    <div class="msg-content">
+      <div class="msg-header"><span class="msg-author" style="color:${color}">${displayName}</span><span class="msg-time">${timeStr}</span></div>
+      <div class="msg-bubble">${escapeHTML(msg.content)}</div>
+    </div>
+  `;
+  container.appendChild(row);
+
+  // If not our message and channel is in DM mode, track unread
+  if (!isOwn && currentChannel.type === 'dm') {
+    // already viewing, no unread
+  }
+
+  const nearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 120;
+  if (nearBottom || isOwn) container.scrollTop = container.scrollHeight;
+}
+
+async function sendMessage() {
+  const input = document.getElementById('msg-input');
+  const content = input.value.trim();
+  if (!content || !currentUser) return;
+
+  input.value = '';
+  autoResize(input);
+  document.getElementById('send-btn').disabled = true;
+
+  await sb.from('messages').insert({
+    channel_id: currentChannel.id,
+    user_id: currentUser.id,
+    content
+  });
+
+  // Clear typing
+  await sb.from('typing').delete().eq('channel_id', currentChannel.id).eq('user_id', currentUser.id);
+}
+
+// ============================================================
+//  TYPING
+// ============================================================
+function subscribeToTyping() {
+  typingSub && sb.removeChannel(typingSub);
+  typingUsers = {};
+  updateTypingBar();
+
+  typingSub = sb.channel(`typing:${currentChannel.id}`)
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'typing', filter: `channel_id=eq.${currentChannel.id}` }, payload => {
+      if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
+        if (payload.new.user_id !== currentUser?.id) typingUsers[payload.new.user_id] = payload.new.display_name;
+      } else if (payload.eventType === 'DELETE') {
+        delete typingUsers[payload.old?.user_id];
+      }
+      updateTypingBar();
+    })
+    .subscribe();
+}
+
+async function handleTyping() {
+  const input = document.getElementById('msg-input');
+  document.getElementById('send-btn').disabled = !input.value.trim();
+
+  if (!currentUser) return;
+  clearTimeout(typingTimeout);
+
+  await sb.from('typing').upsert({
+    channel_id: currentChannel.id, user_id: currentUser.id, display_name: currentUser.display_name
+  }, { onConflict: 'channel_id,user_id' });
+
+  typingTimeout = setTimeout(async () => {
+    await sb.from('typing').delete().eq('channel_id', currentChannel.id).eq('user_id', currentUser.id);
+  }, 3000);
+}
+
+function updateTypingBar() {
+  const bar = document.getElementById('typing-bar');
+  const names = Object.values(typingUsers);
+  if (names.length === 0) { bar.innerHTML = ''; return; }
+  const label = names.length === 1 ? `${names[0]} is typing` : names.length === 2 ? `${names[0]} and ${names[1]} are typing` : `${names.length} people are typing`;
+  bar.innerHTML = `<span style="display:flex;align-items:center;gap:6px">${label} <span class="typing-dots"><span></span><span></span><span></span></span></span>`;
+}
+
+// ============================================================
+//  PRESENCE
+// ============================================================
+function setupPresence() {
+  presenceSub = sb.channel('presence').on('postgres_changes', {
+    event: '*', schema: 'public', table: 'users'
+  }, payload => {
+    if (payload.new) {
+      if (payload.new.status === 'online') onlineUsers[payload.new.id] = true;
+      else delete onlineUsers[payload.new.id];
+      updateOnlineCount();
+      renderSidebarList();
+    }
+  }).subscribe();
+
+  // Load initial online users
+  sb.from('users').select('id, status').eq('status', 'online').then(({ data }) => {
+    (data || []).forEach(u => { onlineUsers[u.id] = true; });
+    updateOnlineCount();
+  });
+
+  // Heartbeat
+  setInterval(async () => {
+    if (currentUser) await sb.from('users').update({ last_seen: new Date().toISOString() }).eq('id', currentUser.id);
+  }, 30000);
+}
+
+function updateOnlineCount() {
+  const count = Object.keys(onlineUsers).length;
+  document.getElementById('online-count').textContent = `${count} online`;
+}
+
+// ============================================================
+//  FRIENDS
+// ============================================================
+async function loadFriends() {
+  if (!currentUser) return;
+  const { data: reqs } = await sb.from('friend_requests').select('*, sender:sender_id(id, display_name, color_index), receiver:receiver_id(id, display_name, color_index)').or(`sender_id.eq.${currentUser.id},receiver_id.eq.${currentUser.id}`);
+  friendRequests = reqs || [];
+
+  const accepted = friendRequests.filter(r => r.status === 'accepted');
+  friends = accepted.map(r => r.sender_id === currentUser.id ? r.receiver : r.sender).filter(Boolean);
+
+  const pending = friendRequests.filter(r => r.status === 'pending' && r.receiver_id === currentUser.id);
+  const hasPending = pending.length > 0;
+  document.getElementById('friend-notif').style.display = hasPending ? 'block' : 'none';
+  document.getElementById('friend-notif2').style.display = hasPending ? 'block' : 'none';
+
+  renderSidebarList();
+}
+
+async function sendFriendRequest(targetUsername) {
+  const { data: target } = await sb.from('users').select('*').ilike('username', targetUsername).single();
+  if (!target) { toast('User not found', 'error'); return; }
+  if (target.id === currentUser.id) { toast("That's you!", 'error'); return; }
+
+  const existing = friendRequests.find(r =>
+    (r.sender_id === currentUser.id && r.receiver_id === target.id) ||
+    (r.sender_id === target.id && r.receiver_id === currentUser.id)
+  );
+  if (existing) { toast('Already connected or requested', 'error'); return; }
+
+  const { error } = await sb.from('friend_requests').insert({ sender_id: currentUser.id, receiver_id: target.id, status: 'pending' });
+  if (error) { toast('Error sending request', 'error'); return; }
+  toast(`Friend request sent to ${target.display_name}!`, 'success');
+  await loadFriends();
+  if (rightPanelMode === 'friends') renderFriendsPanel();
+}
+
+async function acceptRequest(reqId) {
+  await sb.from('friend_requests').update({ status: 'accepted' }).eq('id', reqId);
+  await loadFriends();
+  if (rightPanelMode === 'friends') renderFriendsPanel();
+  toast('Friend added!', 'success');
+}
+
+async function rejectRequest(reqId) {
+  await sb.from('friend_requests').delete().eq('id', reqId);
+  await loadFriends();
+  if (rightPanelMode === 'friends') renderFriendsPanel();
+}
+
+async function removeFriend(reqId) {
+  await sb.from('friend_requests').delete().eq('id', reqId);
+  await loadFriends();
+  if (rightPanelMode === 'friends') renderFriendsPanel();
+  toast('Friend removed');
+}
+
+// ============================================================
+//  PANELS
+// ============================================================
+function openPanel(mode) {
+  rightPanelMode = mode;
+  document.getElementById('right-panel').classList.add('open');
+  document.getElementById('panel-title').textContent = mode === 'friends' ? 'Friends' : 'Settings';
+  if (mode === 'friends') renderFriendsPanel();
+  else renderSettingsPanel();
+}
+
+function closePanel() {
+  document.getElementById('right-panel').classList.remove('open');
+  rightPanelMode = null;
+}
+
+function renderFriendsPanel() {
+  const body = document.getElementById('panel-body');
+  const pending = friendRequests.filter(r => r.status === 'pending' && r.receiver_id === currentUser.id);
+  const sent = friendRequests.filter(r => r.status === 'pending' && r.sender_id === currentUser.id);
+
+  body.innerHTML = `
+    <div class="friend-search-box">
+      <input type="text" id="friend-search-input" placeholder="Username…" autocomplete="off" autocorrect="off" autocapitalize="off">
+      <button class="add-friend-btn" onclick="sendFriendRequest(document.getElementById('friend-search-input').value.trim())">Add</button>
+    </div>
+  `;
+
+  if (pending.length > 0) {
+    body.innerHTML += `<div class="section-label">Incoming (${pending.length})</div>`;
+    pending.forEach(r => {
+      const u = r.sender;
+      body.innerHTML += `
+        <div class="friend-item">
+          <div class="dm-avatar" style="background:${USER_COLORS[u?.color_index]||'#7c6af7'};color:#fff">${(u?.display_name||'?').slice(0,2).toUpperCase()}</div>
+          <div class="friend-info"><div class="friend-name">${u?.display_name||'Unknown'}</div><div class="friend-status">@${r.sender?.username||''}</div></div>
+          <div class="friend-actions">
+            <button class="friend-btn accept" onclick="acceptRequest(${r.id})" title="Accept">✓</button>
+            <button class="friend-btn reject" onclick="rejectRequest(${r.id})" title="Decline">✕</button>
+          </div>
+        </div>
+      `;
+    });
+  }
+
+  if (sent.length > 0) {
+    body.innerHTML += `<div class="section-label">Sent</div>`;
+    sent.forEach(r => {
+      const u = r.receiver;
+      body.innerHTML += `
+        <div class="friend-item">
+          <div class="dm-avatar" style="background:${USER_COLORS[u?.color_index]||'#7c6af7'};color:#fff">${(u?.display_name||'?').slice(0,2).toUpperCase()}</div>
+          <div class="friend-info"><div class="friend-name">${u?.display_name||'Unknown'}</div><div class="friend-status">Pending…</div></div>
+          <div class="friend-actions">
+            <button class="friend-btn reject" onclick="rejectRequest(${r.id})" title="Cancel">✕</button>
+          </div>
+        </div>
+      `;
+    });
+  }
+
+  if (friends.length > 0) {
+    body.innerHTML += `<div class="section-label">Friends (${friends.length})</div>`;
+    friends.forEach(f => {
+      const isOnline = onlineUsers[f.id];
+      const req = friendRequests.find(r =>
+        (r.sender_id === currentUser.id && r.receiver_id === f.id && r.status === 'accepted') ||
+        (r.receiver_id === currentUser.id && r.sender_id === f.id && r.status === 'accepted')
+      );
+      body.innerHTML += `
+        <div class="friend-item">
+          <div class="dm-avatar" style="background:${USER_COLORS[f.color_index]||'#7c6af7'};color:#fff;position:relative">
+            ${(f.display_name||'?').slice(0,2).toUpperCase()}
+            ${isOnline ? '<span class="status-ring"></span>' : ''}
+          </div>
+          <div class="friend-info">
+            <div class="friend-name">${f.display_name||'Unknown'}</div>
+            <div class="friend-status">${isOnline ? '● Online' : '○ Offline'}</div>
+          </div>
+          <div class="friend-actions">
+            <button class="friend-btn dm" onclick="switchToDM(${JSON.stringify(f).replace(/"/g,'&quot;')});switchSideTab('dms')" title="Message">💬</button>
+            ${req ? `<button class="friend-btn remove" onclick="removeFriend(${req.id})" title="Remove">✕</button>` : ''}
+          </div>
+        </div>
+      `;
+    });
+  }
+
+  if (friends.length === 0 && pending.length === 0 && sent.length === 0) {
+    body.innerHTML += `<div style="text-align:center;padding:32px 0;color:var(--text3);font-size:14px">No friends yet.<br>Search by username to add someone!</div>`;
+  }
+}
+
+function renderSettingsPanel() {
+  const body = document.getElementById('panel-body');
+  const savedAccent = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim();
+
+  const accents = ['#7c6af7','#f472b6','#5eead4','#fb923c','#a3e635','#38bdf8','#e879f9','#facc15','#f97316'];
+
+  body.innerHTML = `
+    <div class="settings-section">
+      <div class="settings-label">Accent Color</div>
+      <div class="color-grid" id="accent-grid">
+        ${accents.map(c => `<div class="color-swatch${savedAccent===c?' selected':''}" style="background:${c}" data-color="${c}" onclick="setAccent('${c}')"></div>`).join('')}
+      </div>
+    </div>
+    <div class="settings-section">
+      <div class="settings-label">Status</div>
+      <div class="status-options">
+        <div class="status-opt${currentUser?.status==='online'?' active':''}" data-s="online" onclick="setStatus('online')">● Online</div>
+        <div class="status-opt${currentUser?.status==='away'?' active':''}" data-s="away" onclick="setStatus('away')">◑ Away</div>
+        <div class="status-opt${currentUser?.status==='dnd'?' active':''}" data-s="dnd" onclick="setStatus('dnd')">⊘ DND</div>
+      </div>
+    </div>
+    <div class="settings-section">
+      <div class="settings-label">Appearance</div>
+      <div class="settings-row">
+        <span class="settings-row-label">Compact mode</span>
+        <div class="toggle${localStorage.getItem('vibe_compact')==='1'?' on':''}" id="compact-toggle" onclick="toggleCompact()"></div>
+      </div>
+      <div class="settings-row">
+        <span class="settings-row-label">Notification sounds</span>
+        <div class="toggle${localStorage.getItem('vibe_sounds')!=='0'?' on':''}" id="sounds-toggle" onclick="toggleSounds()"></div>
+      </div>
+    </div>
+    <div class="settings-section">
+      <div class="settings-label">Account</div>
+      <div class="settings-row"><span class="settings-row-label">Username</span><span style="color:var(--text3);font-size:13px">@${currentUser?.username}</span></div>
+      <div class="settings-row"><span class="settings-row-label">Display name</span><span style="color:var(--text3);font-size:13px">${currentUser?.display_name}</span></div>
+    </div>
+    <div style="margin-top:8px">
+      <button onclick="logout()" style="width:100%;padding:10px;background:rgba(248,113,113,0.1);border:1px solid rgba(248,113,113,0.3);color:var(--danger);border-radius:var(--radius-sm);font-size:14px;font-weight:600">Sign Out</button>
+    </div>
+  `;
+}
+
+function setAccent(color) {
+  document.documentElement.style.setProperty('--accent', color);
+  localStorage.setItem('vibe_accent', color);
+  document.querySelectorAll('.color-swatch').forEach(el => {
+    el.classList.toggle('selected', el.dataset.color === color);
+  });
+  toast('Accent color updated!');
+}
+
+async function setStatus(s) {
+  currentUser.status = s;
+  await sb.from('users').update({ status: s }).eq('id', currentUser.id);
+  const labels = { online: '● Online', away: '◑ Away', dnd: '⊘ Do Not Disturb' };
+  document.getElementById('my-status-label').textContent = labels[s] || '';
+  renderSettingsPanel();
+}
+
+function toggleCompact() {
+  const on = localStorage.getItem('vibe_compact') === '1';
+  localStorage.setItem('vibe_compact', on ? '0' : '1');
+  renderSettingsPanel();
+}
+
+function toggleSounds() {
+  const on = localStorage.getItem('vibe_sounds') !== '0';
+  localStorage.setItem('vibe_sounds', on ? '0' : '1');
+  renderSettingsPanel();
+}
+
+// ============================================================
+//  EMOJI
+// ============================================================
+function setupEmojiPicker() {
+  const picker = document.getElementById('emoji-picker');
+  EMOJIS.forEach(e => {
+    const btn = document.createElement('button');
+    btn.className = 'emoji-option';
+    btn.textContent = e;
+    btn.onclick = () => insertEmoji(e);
+    picker.appendChild(btn);
+  });
+}
+
+function toggleEmojiPicker(e) {
+  e.stopPropagation();
+  document.getElementById('emoji-picker').classList.toggle('open');
+}
+
+function insertEmoji(e) {
+  const input = document.getElementById('msg-input');
+  input.value += e;
+  input.focus();
+  document.getElementById('send-btn').disabled = !input.value.trim();
+  autoResize(input);
+  document.getElementById('emoji-picker').classList.remove('open');
+}
+
+document.addEventListener('click', () => {
+  document.getElementById('emoji-picker').classList.remove('open');
+});
+
+// ============================================================
+//  UTILS
+// ============================================================
+function handleInputKey(e) {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    if (!document.getElementById('send-btn').disabled) sendMessage();
+  }
+}
+
+function autoResize(el) {
+  el.style.height = 'auto';
+  el.style.height = Math.min(el.scrollHeight, 120) + 'px';
+}
+
+function escapeHTML(str) {
+  return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function toast(msg, type = '') {
+  const t = document.createElement('div');
+  t.className = 'toast' + (type ? ' ' + type : '');
+  t.textContent = msg;
+  document.getElementById('toast-container').appendChild(t);
+  setTimeout(() => t.remove(), 3000);
+}
+
+// ============================================================
+//  BOOT
+// ============================================================
+tryAutoLogin();
+</script>
+</body>
+</html>
