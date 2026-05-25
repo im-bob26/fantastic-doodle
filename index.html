@@ -695,7 +695,10 @@ function subscribeToMessages() {
     })
     .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'messages' }, payload => {
       const el = document.querySelector(`[data-msg-id="${payload.old.id}"]`);
-      if (el) el.remove();
+      if (el) {
+        // Instead of just removing the element, we re-render to fix the grouping (orphan messages)
+        loadMessages();
+      }
     })
     .subscribe();
 }
@@ -720,10 +723,24 @@ async function sendMessage() {
 
 // ===== MODERATOR ACTIONS =====
 async function deleteMessage(msgId) {
-  if (!isMod(currentUser)) return;
-  const { error } = await sb.from('messages').delete().eq('id', msgId);
-  if (error) toast('Failed to delete message.', 'error');
-  else toast('Message deleted.');
+  // 1. Get the message first to check ownership
+  const { data: msg } = await sb.from('messages').select('user_id').eq('id', msgId).single();
+  if (!msg) return;
+
+  const isOwn = String(msg.user_id) === String(currentUser?.id);
+  
+  // 2. Allow if Mod OR if it's your own message
+  if (isMod(currentUser) || isOwn) {
+    const { error } = await sb.from('messages').delete().eq('id', msgId);
+    if (error) {
+      console.error(error);
+      toast('Failed to delete message. Check RLS policies.', 'error');
+    } else {
+      toast('Message deleted.');
+    }
+  } else {
+    toast('You do not have permission to delete this message.', 'error');
+  }
 }
 
 async function muteUser(userId, minutes) {
