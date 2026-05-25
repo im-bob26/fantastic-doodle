@@ -696,7 +696,11 @@ async function requestGame(targetUser, gameType) {
 
   if (error || !session) {
     console.error('Game Error:', error);
-    alert('Game Error: ' + (error?.message || 'Unknown error'));
+    if (error?.message?.includes("Could not find the table 'public.game_sessions'")) {
+      alert("Database Setup Needed: The 'game_sessions' table is missing from your Supabase project. \n\nPlease run the SQL script provided by Manus in your Supabase SQL Editor to enable games and notifications!");
+    } else {
+      alert('Game Error: ' + (error?.message || 'Unknown error'));
+    }
     toast('Could not create game session.', 'error');
     return;
   }
@@ -784,7 +788,7 @@ function openGameScreen(sid, gameType, isChallenger, opponentName) {
         screenGame.chessSelected = null; screenGame.chessValidMoves = [];
         renderScreenChess(s.checkColor, s.winner);
       }
-      if (isChallenger && payload.new.status === 'active') {
+      if (payload.new.status === 'active' && document.querySelector('.game-waiting-card')) {
         document.getElementById('gs-subtitle').textContent = `vs ${screenGame.opponentName}`;
         loadAndRenderGameScreen();
       }
@@ -1005,6 +1009,7 @@ function subscribeToGameNotifications() {
         gameType: n.game_type,
         sessionId: n.session_id,
         timestamp: new Date().toISOString(),
+        expiresAt: Date.now() + (5 * 60 * 1000), // 5 minutes from now
         read: false
       };
       notifications.unshift(notif);
@@ -1073,22 +1078,37 @@ function updateNotifBadge() {
 // ===== NOTIFICATIONS PANEL =====
 function renderNotificationsPanel() {
   const body = document.getElementById('panel-body');
-  if (notifications.length === 0) {
+  
+  // Filter out expired game requests
+  const now = Date.now();
+  const activeNotifs = notifications.filter(n => !n.expiresAt || n.expiresAt > now || n.accepted || n.declined);
+  
+  if (activeNotifs.length === 0) {
     body.innerHTML = `<div style="text-align:center;padding:40px 0;color:var(--text3);font-size:13px">No notifications yet.<br>Game requests will appear here!</div>`;
     return;
   }
+
   notifications.forEach(n => n.read = true);
   saveNotificationsToStorage();
   updateNotifBadge();
+  
   body.innerHTML = '';
-  notifications.forEach(n => {
+  activeNotifs.forEach(n => {
     const color = USER_COLORS[n.fromUser?.color_index] || '#7c6af7';
     const initials = (n.fromUser?.display_name||'?').split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase();
     const gi = GAME_INFO[n.gameType] || {};
     const timeAgo = formatTimeAgo(n.timestamp);
+    
     let actionsHtml = '';
+    let timerHtml = '';
+    
     if (n.type === 'game_request' && !n.accepted && !n.declined) {
       const fuJson = JSON.stringify(n.fromUser).replace(/"/g,'&quot;');
+      const timeLeft = Math.max(0, Math.floor((n.expiresAt - now) / 1000));
+      const mins = Math.floor(timeLeft / 60);
+      const secs = timeLeft % 60;
+      timerHtml = `<span style="color:var(--accent);font-weight:700;margin-left:8px">⏱ ${mins}:${secs < 10 ? '0' : ''}${secs}</span>`;
+      
       actionsHtml = `<div class="notif-actions">
         <button class="notif-btn accept" onclick="acceptNotifGame('${n.sessionId}','${n.gameType}',${fuJson})">▶ Join Game</button>
         <button class="notif-btn decline" onclick="declineNotifGame('${n.sessionId}')">Decline</button>
@@ -1098,17 +1118,23 @@ function renderNotificationsPanel() {
     } else if (n.declined) {
       actionsHtml = `<div style="font-size:11px;color:var(--text3);margin-top:5px">Declined</div>`;
     }
+    
     body.innerHTML += `
       <div class="notif-item">
         <div class="notif-avatar" style="background:${color}">${initials}</div>
         <div class="notif-content">
-          <div class="notif-text"><b>${escHTML(n.fromUser?.display_name||'Someone')}</b> challenged you to <b>${escHTML(gi.name||n.gameType)}</b> ${gi.icon||'🎮'}</div>
+          <div class="notif-text"><b>${escHTML(n.fromUser?.display_name||'Someone')}</b> challenged you to <b>${escHTML(gi.name||n.gameType)}</b> ${gi.icon||'🎮'}${timerHtml}</div>
           <div class="notif-time">${timeAgo}</div>
           ${actionsHtml}
         </div>
       </div>`;
   });
 }
+
+// Auto-refresh notifications panel to show countdown
+setInterval(() => {
+  if (rightPanelMode === 'notifications') renderNotificationsPanel();
+}, 1000);
 
 async function acceptNotifGame(sessionId, gameType, fromUser) {
   const { data: updated, error } = await sb.from('game_sessions').update({ status: 'active' }).eq('id', sessionId).eq('status','waiting').select().single();
