@@ -679,42 +679,39 @@ async function requestGame(targetUser, gameType) {
   const gi = GAME_INFO[gameType];
   if (!gi) return;
 
+  // We use the DM ID as the channel_id to keep it private
   const dmId = getDMId(currentUser.id, targetUser.id);
   const initialState = gameType === 'chess' 
     ? { board: initChessBoard(), turn: 'w', captured: {w:[],b:[]}, lastMove: null }
     : { board: initC4Board(), turn: 1 };
 
-  // First, try to insert with opponent_id
-  let { data: session, error } = await sb.from('game_sessions').insert({
+  // Matching your original working vibe-2.html structure exactly
+  const { data: session, error } = await sb.from('game_sessions').insert({
     type: gameType,
     channel_id: dmId,
     challenger_id: currentUser.id,
-    opponent_id: targetUser.id,
     status: 'waiting',
     state: JSON.stringify(initialState)
   }).select().single();
 
-  // If that fails (likely column doesn't exist), try without opponent_id
   if (error || !session) {
-    const { data: s2, error: e2 } = await sb.from('game_sessions').insert({
-      type: gameType,
-      channel_id: dmId,
-      challenger_id: currentUser.id,
-      status: 'waiting',
-      state: JSON.stringify(initialState)
-    }).select().single();
-    
-    if (e2 || !s2) {
-      console.error('Game session error:', error || e2);
-      toast('Could not create game session.', 'error');
-      return;
-    }
-    session = s2;
+    console.error('Game Error:', error);
+    alert('Game Error: ' + (error?.message || 'Unknown error'));
+    toast('Could not create game session.', 'error');
+    return;
   }
 
   const sid = session.id;
 
-  // Try to send notification, but don't block if table doesn't exist
+  // Send a notification message in the DM so they see it there too (matching vibe-2 style)
+  const payload = { type: gameType, sessionId: sid, challengerName: currentUser.display_name };
+  await sb.from('messages').insert({ 
+    channel_id: dmId, 
+    user_id: currentUser.id, 
+    content: '__GAME__:' + JSON.stringify(payload) 
+  });
+
+  // Try to send the real-time notification banner data
   try {
     await sb.from('game_notifications').insert({
       session_id: sid,
@@ -724,10 +721,10 @@ async function requestGame(targetUser, gameType) {
       status: 'pending'
     });
   } catch(e) {
-    console.log('Notifications table might not exist, skipping...');
+    console.warn('Real-time notification banner failed (table missing), but game is created.');
   }
 
-  toast(`${gi.name} request sent to ${targetUser.display_name}!`, 'success');
+  toast(`${gi.name} request sent!`, 'success');
   openGameScreen(sid, gameType, true, targetUser.display_name);
 }
 
