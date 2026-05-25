@@ -783,29 +783,45 @@ function openGameScreen(sid, gameType, isChallenger, opponentName) {
   loadAndRenderGameScreen();
 
   if (activeGameScreenSub) sb.removeChannel(activeGameScreenSub);
-  activeGameScreenSub = sb.channel('gs:' + sid)
-    .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'game_sessions', filter: `id=eq.${sid}` }, payload => {
-      const s = JSON.parse(payload.new.state || '{}');
-      if (payload.new.status === 'waiting') return;
+  activeGameScreenSub = sb.channel('gs-realtime-' + sid)
+    .on('postgres_changes', { 
+      event: '*', 
+      schema: 'public', 
+      table: 'game_sessions', 
+      filter: `id=eq.${sid}` 
+    }, payload => {
+      const data = payload.new;
+      if (!data || !data.state) return;
+      
+      const s = typeof data.state === 'string' ? JSON.parse(data.state) : data.state;
+      
+      // Update status subtitle
+      if (data.status === 'active') {
+        document.getElementById('gs-subtitle').textContent = `vs ${screenGame.opponentName}`;
+      } else if (data.status === 'finished') {
+        document.getElementById('gs-subtitle').textContent = 'Game Over';
+      }
+      
+      // Update local state and re-render
       if (gameType === 'connect4') {
         screenGame.c4Board = s.board || initC4Board();
         screenGame.c4Turn = s.turn || 1;
-        if (payload.new.status === 'finished') screenGame.c4GameOver = true;
+        screenGame.c4GameOver = data.status === 'finished';
         renderScreenC4(s.winner, s.winCells);
       } else {
         screenGame.chessBoard = s.board || initChessBoard();
         screenGame.chessTurn = s.turn || 'w';
         screenGame.chessLastMove = s.lastMove || null;
         screenGame.chessCaptured = s.captured || {w:[],b:[]};
-        if (payload.new.status === 'finished') screenGame.chessGameOver = true;
-        screenGame.chessSelected = null; screenGame.chessValidMoves = [];
+        screenGame.chessGameOver = data.status === 'finished';
+        screenGame.chessSelected = null; 
+        screenGame.chessValidMoves = [];
         renderScreenChess(s.checkColor, s.winner);
       }
-      if (payload.new.status === 'active' && document.querySelector('.game-waiting-card')) {
-        document.getElementById('gs-subtitle').textContent = `vs ${screenGame.opponentName}`;
-        loadAndRenderGameScreen();
-      }
-    }).subscribe();
+    })
+    .subscribe((status) => {
+      if (status === 'SUBSCRIBED') console.log('Game sync active for session:', sid);
+    });
 }
 
 async function loadAndRenderGameScreen() {
