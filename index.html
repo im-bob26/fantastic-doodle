@@ -653,7 +653,8 @@ function buildMessageEl(msg, sameAuthor) {
   const modBadge = isModUser ? `<span style="background:var(--accent);color:#fff;font-size:9px;padding:1px 4px;border-radius:4px;margin-left:5px;font-weight:700">MOD</span>` : '';
   
   let modActions = '';
-  if (isMod(currentUser) && !isOwn) {
+  // Mod can delete anything, user can delete their own
+  if (isMod(currentUser) || isOwn) {
     modActions = `<button class="msg-mod-btn" onclick="deleteMessage('${msg.id}')" title="Delete Message">🗑️</button>`;
   }
 
