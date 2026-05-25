@@ -92,6 +92,10 @@ input, textarea { font-family: inherit; color: inherit; background: none; border
 .msg-author:hover { text-decoration: underline; }
 .msg-time { font-size: 10px; color: var(--text3); }
 .msg-bubble { font-size: 14px; line-height: 1.55; color: var(--text); word-break: break-word; white-space: pre-wrap; }
+.msg-bubble-wrap { display: flex; align-items: center; gap: 8px; position: relative; }
+.msg-mod-btn { background: none; border: none; cursor: pointer; opacity: 0; transition: opacity 0.2s; font-size: 12px; padding: 4px; color: var(--text3); }
+.msg-row:hover .msg-mod-btn { opacity: 0.5; }
+.msg-mod-btn:hover { opacity: 1 !important; color: var(--danger); }
 .msg-date-divider { display: flex; align-items: center; gap: 12px; color: var(--text3); font-size: 11px; font-weight: 600; margin: 14px 0; }
 .msg-date-divider::before, .msg-date-divider::after { content: ''; flex: 1; height: 1px; background: var(--border); }
 /* TYPING */
@@ -360,6 +364,7 @@ input, textarea { font-family: inherit; color: inherit; background: none; border
       <div class="chat-header-actions">
         <button class="icon-btn" style="position:relative" onclick="openPanel('notifications')" title="Notifications">🔔<span class="notif-dot" id="notif-badge2"></span></button>
         <button class="icon-btn" style="position:relative" onclick="openPanel('friends')" title="Friends">👥<span class="notif-dot" id="friend-notif2"></span></button>
+        <button class="icon-btn" id="mod-clear-btn" style="display:none" onclick="clearChat()" title="Clear Chat"><span class="icon">🧹</span></button>
         <button class="icon-btn" onclick="openPanel('online')" title="Online players">🌐</button>
       </div>
     </div>
@@ -450,10 +455,16 @@ const CHANNELS = [
 ];
 const EMOJIS = ['😀','😂','😍','🥰','😎','🤔','😢','😡','🥳','🎉','🔥','❤️','👍','👎','🙏','💯','✨','🎮','🎵','💻','🚀','🌙','⭐','🌈','🍕','☕','🧠','👀','💀','🤣'];
 const USER_COLORS = ['#7c6af7','#f472b6','#5eead4','#fb923c','#a3e635','#38bdf8','#e879f9','#facc15'];
+const MODERATORS = ['markiyan']; // Add your username here to become a moderator
 const GAME_INFO = {
   chess: { icon: '♟️', name: 'Chess', desc: 'Classic strategy game' },
   connect4: { icon: '🔴', name: 'Connect 4', desc: 'Get 4 in a row to win' }
 };
+
+function isMod(user) {
+  if (!user) return false;
+  return MODERATORS.includes(user.username?.toLowerCase());
+}
 
 // ===== AUTH =====
 let authMode = 'login';
@@ -580,6 +591,10 @@ async function switchToChannel(ch) {
   currentChannel = { id: ch.id, name: ch.name, type: 'channel', desc: ch.desc };
   document.getElementById('chat-channel-name').textContent = `# ${ch.name}`;
   document.getElementById('chat-channel-desc').textContent = ch.desc;
+  
+  const clearBtn = document.getElementById('mod-clear-btn');
+  if (clearBtn) clearBtn.style.display = isMod(currentUser) ? 'block' : 'none';
+  
   renderSidebarList(); closeSidebar();
   await loadMessages(); subscribeToMessages(); subscribeToTyping();
 }
@@ -634,9 +649,26 @@ function buildMessageEl(msg, sameAuthor) {
   const timeStr = date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
   const row = document.createElement('div');
   row.className = 'msg-row';
-  const bubbleContent = `<div class="msg-bubble">${escHTML(msg.content)}</div>`;
+  const isModUser = isMod(user);
+  const modBadge = isModUser ? `<span style="background:var(--accent);color:#fff;font-size:9px;padding:1px 4px;border-radius:4px;margin-left:5px;font-weight:700">MOD</span>` : '';
+  
+  let modActions = '';
+  if (isMod(currentUser) && !isOwn) {
+    modActions = `<button class="msg-mod-btn" onclick="deleteMessage('${msg.id}')" title="Delete Message">🗑️</button>`;
+  }
+
+  const bubbleContent = `<div class="msg-bubble-wrap">
+    <div class="msg-bubble">${escHTML(msg.content)}</div>
+    ${modActions}
+  </div>`;
+  
   const avatarHtml = `<div class="msg-avatar${sameAuthor?' hidden':''}" style="background:${color};color:#fff" onclick="showUserPopup(event,${JSON.stringify(user).replace(/"/g,'&quot;')})">${initials}</div>`;
-  const headerHtml = sameAuthor ? '' : `<div class="msg-header"><span class="msg-author" style="color:${color}" onclick="showUserPopup(event,${JSON.stringify(user).replace(/"/g,'&quot;')})">${escHTML(displayName)}</span><span class="msg-time">${timeStr}</span></div>`;
+  const headerHtml = sameAuthor ? '' : `<div class="msg-header">
+    <span class="msg-author" style="color:${color}" onclick="showUserPopup(event,${JSON.stringify(user).replace(/"/g,'&quot;')})">${escHTML(displayName)}</span>
+    ${modBadge}
+    <span class="msg-time">${timeStr}</span>
+  </div>`;
+  
   row.innerHTML = `${avatarHtml}<div class="msg-content">${headerHtml}${bubbleContent}</div>`;
   return row;
 }
@@ -659,17 +691,63 @@ function subscribeToMessages() {
       container.appendChild(el);
       const nearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 150;
       if (nearBottom || msg.user_id === currentUser?.id) container.scrollTop = container.scrollHeight;
-    }).subscribe();
+    })
+    .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'messages' }, payload => {
+      const el = document.querySelector(`[data-msg-id="${payload.old.id}"]`);
+      if (el) el.remove();
+    })
+    .subscribe();
 }
 
 async function sendMessage() {
   const input = document.getElementById('msg-input');
   const content = input.value.trim();
   if (!content || !currentUser) return;
+
+  // Check if muted
+  if (currentUser.muted_until && new Date(currentUser.muted_until) > new Date()) {
+    const remaining = Math.ceil((new Date(currentUser.muted_until) - new Date()) / 60000);
+    toast(`You are muted for ${remaining} more minutes.`, 'error');
+    return;
+  }
+
   input.value = ''; autoResize(input);
   document.getElementById('send-btn').disabled = true;
   await sb.from('messages').insert({ channel_id: currentChannel.id, user_id: currentUser.id, content });
   await sb.from('typing').delete().eq('channel_id', currentChannel.id).eq('user_id', currentUser.id);
+}
+
+// ===== MODERATOR ACTIONS =====
+async function deleteMessage(msgId) {
+  if (!isMod(currentUser)) return;
+  const { error } = await sb.from('messages').delete().eq('id', msgId);
+  if (error) toast('Failed to delete message.', 'error');
+  else toast('Message deleted.');
+}
+
+async function muteUser(userId, minutes) {
+  if (!isMod(currentUser)) return;
+  const mutedUntil = new Date(Date.now() + minutes * 60000).toISOString();
+  const { error } = await sb.from('users').update({ muted_until: mutedUntil }).eq('id', userId);
+  if (error) {
+    console.error(error);
+    alert("Database Update Needed: Please add a 'muted_until' column (timestamp) to your 'users' table in Supabase.");
+    toast('Failed to mute user.', 'error');
+  } else {
+    toast(`User muted for ${minutes} minutes.`);
+    closeUserPopup();
+  }
+}
+
+async function clearChat() {
+  if (!isMod(currentUser)) return;
+  if (!confirm('Are you sure you want to clear all messages in this channel?')) return;
+  
+  const { error: delError } = await sb.from('messages').delete().eq('channel_id', currentChannel.id);
+  if (delError) { toast('Failed to clear messages.', 'error'); return; }
+  
+  loadMessages();
+  toast('Chat cleared.');
 }
 
 // ===== GAME REQUEST =====
@@ -1458,7 +1536,19 @@ function showUserPopup(e, user) {
   let actions = '';
   if (isFriend) actions += `<button class="user-popup-btn" onclick="switchToDM(${userJson});switchSideTab('dms');closeUserPopup()">💬 Send Message</button>`;
   if (!alreadyFriend) actions += `<button class="user-popup-btn" onclick="sendFriendRequest('${escHTML(user.username)}');closeUserPopup()">➕ Add Friend</button>`;
+  
+  // Mod Actions in Popup
+  if (isMod(currentUser)) {
+    actions += `
+      <div style="border-top:1px solid var(--border);margin:4px 0;padding-top:4px"></div>
+      <div style="font-size:10px;color:var(--text3);padding:0 12px 4px;font-weight:700">MODERATOR</div>
+      <button class="user-popup-btn" style="color:#f87171" onclick="muteUser(${user.id}, 10)">🔇 Mute 10m</button>
+      <button class="user-popup-btn" style="color:#f87171" onclick="muteUser(${user.id}, 60)">🔇 Mute 1h</button>
+    `;
+  }
+
   actions += `
+    <div style="border-top:1px solid var(--border);margin:4px 0;padding-top:4px"></div>
     <button class="user-popup-btn" onclick="togglePopupGameMenu(event)">🎮 Challenge to Game ▾</button>
     <div class="user-popup-game-menu" id="popup-game-menu">
       <button class="user-popup-game-opt" onclick="requestGame(${userJson},'chess');closeUserPopup()">♟️ Chess</button>
