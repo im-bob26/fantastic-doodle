@@ -639,7 +639,7 @@ function renderMessages(msgs) {
 }
 
 function buildMessageEl(msg, sameAuthor) {
-  const isOwn = msg.user_id === currentUser?.id;
+  const isOwn = String(msg.user_id) === String(currentUser?.id);
   const user = msg.users || {};
   const displayName = user.display_name || 'Unknown';
   const colorIdx = user.color_index ?? 0;
@@ -648,7 +648,7 @@ function buildMessageEl(msg, sameAuthor) {
   const date = new Date(msg.created_at);
   const timeStr = date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
   const row = document.createElement('div');
-  row.className = 'msg-row';
+  row.className = 'msg-row' + (isOwn ? ' own' : '');
   const isModUser = isMod(user);
   const modBadge = isModUser ? `<span style="background:var(--accent);color:#fff;font-size:9px;padding:1px 4px;border-radius:4px;margin-left:5px;font-weight:700">MOD</span>` : '';
   
@@ -1338,24 +1338,50 @@ function formatTimeAgo(ts) {
   return `${Math.floor(hrs/24)}d ago`;
 }
 
-// ===== TYPING =====
+// ===== TYPING & PRESENCE (IMPROVED) =====
 function subscribeToTyping() {
   typingSub && sb.removeChannel(typingSub);
   typingUsers = {}; updateTypingBar();
-  typingSub = sb.channel(`typing:${currentChannel.id}`)
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'typing', filter: `channel_id=eq.${currentChannel.id}` }, payload => {
-      if (payload.eventType === 'DELETE') { delete typingUsers[payload.old?.user_id]; }
-      else if (payload.new?.user_id !== currentUser?.id) { typingUsers[payload.new.user_id] = payload.new.display_name; }
+  
+  // Use Presence for typing - much faster and more reliable than a table
+  typingSub = sb.channel(`typing:${currentChannel.id}`);
+  typingSub
+    .on('presence', { event: 'sync' }, () => {
+      const state = typingSub.presenceState();
+      typingUsers = {};
+      Object.values(state).forEach(presences => {
+        presences.forEach(p => {
+          if (p.user_id !== currentUser?.id && p.is_typing) {
+            typingUsers[p.user_id] = p.display_name;
+          }
+        });
+      });
       updateTypingBar();
-    }).subscribe();
+    })
+    .subscribe();
 }
+
 async function handleTyping() {
   const input = document.getElementById('msg-input');
   document.getElementById('send-btn').disabled = !input.value.trim();
-  if (!currentUser) return;
+  if (!currentUser || !typingSub) return;
+  
   clearTimeout(typingTimeout);
-  await sb.from('typing').upsert({ channel_id: currentChannel.id, user_id: currentUser.id, display_name: currentUser.display_name }, { onConflict: 'channel_id,user_id' });
-  typingTimeout = setTimeout(async () => { await sb.from('typing').delete().eq('channel_id', currentChannel.id).eq('user_id', currentUser.id); }, 3000);
+  
+  // Track typing state via presence
+  typingSub.track({
+    user_id: currentUser.id,
+    display_name: currentUser.display_name,
+    is_typing: true
+  });
+  
+  typingTimeout = setTimeout(() => {
+    typingSub.track({
+      user_id: currentUser.id,
+      display_name: currentUser.display_name,
+      is_typing: false
+    });
+  }, 3000);
 }
 function updateTypingBar() {
   const bar = document.getElementById('typing-bar');
@@ -1365,22 +1391,54 @@ function updateTypingBar() {
   bar.innerHTML = `<span style="display:flex;align-items:center;gap:6px">${label} <span class="typing-dots"><span></span><span></span><span></span></span></span>`;
 }
 
-// ===== PRESENCE =====
+// ===== PRESENCE (IMPROVED) =====
 function setupPresence() {
-  sb.from('users').select('id,display_name,color_index,username,status').eq('status','online').then(({ data }) => {
-    (data||[]).forEach(u => { onlineUsers[u.id]=true; onlineUserData[u.id]=u; });
-    updateOnlineCount();
-    if (rightPanelMode==='online') renderOnlinePanel();
-  });
-  presenceSub = sb.channel('presence-watch').on('postgres_changes', { event: '*', schema: 'public', table: 'users' }, payload => {
-    const u = payload.new || payload.old;
-    if (!u) return;
-    if (payload.new?.status==='online') { onlineUsers[u.id]=true; onlineUserData[u.id]=payload.new; }
-    else { delete onlineUsers[u.id]; delete onlineUserData[u.id]; }
-    updateOnlineCount(); renderSidebarList();
-    if (rightPanelMode==='online') renderOnlinePanel();
-  }).subscribe();
-  setInterval(async () => { if (currentUser) await sb.from('users').update({ last_seen: new Date().toISOString() }).eq('id', currentUser.id); }, 30000);
+  // Global presence channel to track who is actually online right now
+  presenceSub = sb.channel('global-presence');
+  presenceSub
+    .on('presence', { event: 'sync' }, () => {
+      const state = presenceSub.presenceState();
+      const newOnlineUsers = {};
+      const newOnlineUserData = {};
+      
+      Object.values(state).forEach(presences => {
+        presences.forEach(p => {
+          newOnlineUsers[p.user_id] = true;
+          newOnlineUserData[p.user_id] = p.user_data;
+        });
+      });
+      
+      onlineUsers = newOnlineUsers;
+      onlineUserData = newOnlineUserData;
+      
+      updateOnlineCount();
+      renderSidebarList();
+      if (rightPanelMode === 'online') renderOnlinePanel();
+    })
+    .subscribe(async (status) => {
+      if (status === 'SUBSCRIBED') {
+        await presenceSub.track({
+          user_id: currentUser.id,
+          user_data: {
+            id: currentUser.id,
+            display_name: currentUser.display_name,
+            username: currentUser.username,
+            color_index: currentUser.color_index,
+            status: currentUser.status || 'online'
+          }
+        });
+      }
+    });
+
+  // Keep a legacy fallback for database-driven status
+  setInterval(async () => { 
+    if (currentUser) {
+      await sb.from('users').update({ 
+        last_seen: new Date().toISOString(),
+        status: currentUser.status || 'online'
+      }).eq('id', currentUser.id); 
+    }
+  }, 30000);
 }
 function updateOnlineCount() {
   document.getElementById('online-count').textContent = `${Object.keys(onlineUsers).length} online`;
