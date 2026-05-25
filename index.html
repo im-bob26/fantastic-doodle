@@ -729,6 +729,22 @@ async function requestGame(targetUser, gameType) {
   }
 
   toast(`${gi.name} request sent!`, 'success');
+  
+  // Add a local notification for the challenger so they can rejoin later
+  const notif = {
+    id: 'challenger_' + sid,
+    type: 'game_request',
+    fromUser: targetUser, // Show who you challenged
+    isOutgoing: true,
+    gameType: gameType,
+    sessionId: sid,
+    timestamp: new Date().toISOString(),
+    expiresAt: Date.now() + (5 * 60 * 1000),
+    read: true
+  };
+  notifications.unshift(notif);
+  saveNotificationsToStorage();
+
   openGameScreen(sid, gameType, true, targetUser.display_name);
 }
 
@@ -763,11 +779,8 @@ function openGameScreen(sid, gameType, isChallenger, opponentName) {
   screenGame.chessGameOver = false;
   screenGame.chessPlayerColor = isChallenger ? 'w' : 'b';
 
-  if (isChallenger) {
-    renderGameScreenWaiting();
-  } else {
-    loadAndRenderGameScreen();
-  }
+  // Always load and render the board immediately
+  loadAndRenderGameScreen();
 
   if (activeGameScreenSub) sb.removeChannel(activeGameScreenSub);
   activeGameScreenSub = sb.channel('gs:' + sid)
@@ -1102,32 +1115,61 @@ function renderNotificationsPanel() {
     let actionsHtml = '';
     let timerHtml = '';
     
-    if (n.type === 'game_request' && !n.accepted && !n.declined) {
+    if (n.type === 'game_request') {
       const fuJson = JSON.stringify(n.fromUser).replace(/"/g,'&quot;');
-      const timeLeft = Math.max(0, Math.floor((n.expiresAt - now) / 1000));
-      const mins = Math.floor(timeLeft / 60);
-      const secs = timeLeft % 60;
-      timerHtml = `<span style="color:var(--accent);font-weight:700;margin-left:8px">⏱ ${mins}:${secs < 10 ? '0' : ''}${secs}</span>`;
+      const isExpired = n.expiresAt && n.expiresAt < now;
       
-      actionsHtml = `<div class="notif-actions">
-        <button class="notif-btn accept" onclick="acceptNotifGame('${n.sessionId}','${n.gameType}',${fuJson})">▶ Join Game</button>
-        <button class="notif-btn decline" onclick="declineNotifGame('${n.sessionId}')">Decline</button>
-      </div>`;
-    } else if (n.accepted) {
-      actionsHtml = `<div style="font-size:11px;color:#4ade80;margin-top:5px">✓ Accepted</div>`;
-    } else if (n.declined) {
-      actionsHtml = `<div style="font-size:11px;color:var(--text3);margin-top:5px">Declined</div>`;
+      if (n.isOutgoing) {
+        // Outgoing challenge
+        const status = n.accepted ? '✓ Accepted' : n.declined ? 'Declined' : isExpired ? 'Expired' : 'Waiting...';
+        const statusColor = n.accepted ? '#4ade80' : 'var(--text3)';
+        
+        actionsHtml = `<div class="notif-actions">
+          <button class="notif-btn accept" onclick="rejoinGame('${n.sessionId}','${n.gameType}',${fuJson})">📺 View Board</button>
+          <div style="font-size:11px;color:${statusColor};margin-left:auto;align-self:center">${status}</div>
+        </div>`;
+        
+        body.innerHTML += `
+          <div class="notif-item">
+            <div class="notif-avatar" style="background:${color}">${initials}</div>
+            <div class="notif-content">
+              <div class="notif-text">You challenged <b>${escHTML(n.fromUser?.display_name)}</b> to <b>${escHTML(gi.name||n.gameType)}</b> ${gi.icon||'🎮'}</div>
+              <div class="notif-time">${timeAgo}</div>
+              ${actionsHtml}
+            </div>
+          </div>`;
+      } else {
+        // Incoming challenge
+        if (!n.accepted && !n.declined && !isExpired) {
+          const timeLeft = Math.max(0, Math.floor((n.expiresAt - now) / 1000));
+          const mins = Math.floor(timeLeft / 60);
+          const secs = timeLeft % 60;
+          timerHtml = `<span style="color:var(--accent);font-weight:700;margin-left:8px">⏱ ${mins}:${secs < 10 ? '0' : ''}${secs}</span>`;
+          
+          actionsHtml = `<div class="notif-actions">
+            <button class="notif-btn accept" onclick="acceptNotifGame('${n.sessionId}','${n.gameType}',${fuJson})">▶ Join Game</button>
+            <button class="notif-btn decline" onclick="declineNotifGame('${n.sessionId}')">Decline</button>
+          </div>`;
+        } else {
+          const status = n.accepted ? '✓ Accepted' : n.declined ? 'Declined' : 'Expired';
+          const statusColor = n.accepted ? '#4ade80' : 'var(--text3)';
+          actionsHtml = `<div class="notif-actions">
+            <button class="notif-btn accept" onclick="rejoinGame('${n.sessionId}','${n.gameType}',${fuJson})">📺 Rejoin</button>
+            <div style="font-size:11px;color:${statusColor};margin-left:auto;align-self:center">${status}</div>
+          </div>`;
+        }
+        
+        body.innerHTML += `
+          <div class="notif-item">
+            <div class="notif-avatar" style="background:${color}">${initials}</div>
+            <div class="notif-content">
+              <div class="notif-text"><b>${escHTML(n.fromUser?.display_name||'Someone')}</b> challenged you to <b>${escHTML(gi.name||n.gameType)}</b> ${gi.icon||'🎮'}${timerHtml}</div>
+              <div class="notif-time">${timeAgo}</div>
+              ${actionsHtml}
+            </div>
+          </div>`;
+      }
     }
-    
-    body.innerHTML += `
-      <div class="notif-item">
-        <div class="notif-avatar" style="background:${color}">${initials}</div>
-        <div class="notif-content">
-          <div class="notif-text"><b>${escHTML(n.fromUser?.display_name||'Someone')}</b> challenged you to <b>${escHTML(gi.name||n.gameType)}</b> ${gi.icon||'🎮'}${timerHtml}</div>
-          <div class="notif-time">${timeAgo}</div>
-          ${actionsHtml}
-        </div>
-      </div>`;
   });
 }
 
@@ -1138,13 +1180,29 @@ setInterval(() => {
 
 async function acceptNotifGame(sessionId, gameType, fromUser) {
   const { data: updated, error } = await sb.from('game_sessions').update({ status: 'active' }).eq('id', sessionId).eq('status','waiting').select().single();
-  if (!updated || error) { toast('Game already started or cancelled.', 'error'); return; }
+  if (!updated && !error) { 
+    // If not updated but no error, it might already be active (e.g. from another tab)
+    rejoinGame(sessionId, gameType, fromUser);
+    return;
+  }
+  if (error) { toast('Could not join game.', 'error'); return; }
+  
   try { await sb.from('game_notifications').update({ status: 'accepted' }).eq('session_id', sessionId); } catch(e) {}
   const n = notifications.find(n => String(n.sessionId) === String(sessionId));
   if (n) { n.accepted = true; saveNotificationsToStorage(); }
   closePanel();
   toast(`Joined ${GAME_INFO[gameType]?.name||'game'}!`, 'success');
   openGameScreen(sessionId, gameType, false, fromUser.display_name);
+}
+
+function rejoinGame(sessionId, gameType, fromUser) {
+  closePanel();
+  toast(`Rejoining ${GAME_INFO[gameType]?.name||'game'}...`);
+  // Check if we were the challenger or opponent for the correct perspective
+  sb.from('game_sessions').select('challenger_id').eq('id', sessionId).single().then(({data}) => {
+    const isChallenger = data && data.challenger_id === currentUser.id;
+    openGameScreen(sessionId, gameType, isChallenger, fromUser.display_name);
+  });
 }
 
 async function declineNotifGame(sessionId) {
