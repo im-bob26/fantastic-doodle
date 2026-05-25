@@ -902,7 +902,11 @@ function renderScreenC4(winner, winCells, isDraw) {
     <span><span class="c4-legend-dot" style="background:#f87171"></span>${screenGame.c4MyPiece===1?'You':'Opp'} (Red)</span>
     <span><span class="c4-legend-dot" style="background:#facc15"></span>${screenGame.c4MyPiece===2?'You':'Opp'} (Yellow)</span>
   </div>`;
-  if (!screenGame.c4GameOver) html += `<button class="game-resign-btn" onclick="screenResign()">🏳 Resign</button>`;
+  if (!screenGame.c4GameOver) {
+    html += `<button class="game-resign-btn" onclick="screenResign()">🏳 Resign</button>`;
+  } else {
+    html += `<button class="banner-btn accept" style="margin-top:10px" onclick="screenRematch()">🔄 Rematch</button>`;
+  }
   body.innerHTML = html;
 }
 
@@ -972,7 +976,11 @@ function renderScreenChess(checkColor, winner, stalemate) {
     html += `<div class="chess-square ${cls}" onclick="screenChessClick(${r},${c})">${ph}</div>`;
   }
   html += `</div></div><div class="chess-file-labels">${cols.map(c=>`<span>${files[c]}</span>`).join('')}</div></div>`;
-  if (!screenGame.chessGameOver) html += `<button class="game-resign-btn" onclick="screenResign()">🏳 Resign</button>`;
+  if (!screenGame.chessGameOver) {
+    html += `<button class="game-resign-btn" onclick="screenResign()">🏳 Resign</button>`;
+  } else {
+    html += `<button class="banner-btn accept" style="margin-top:10px" onclick="screenRematch()">🔄 Rematch</button>`;
+  }
   body.innerHTML = html;
 }
 
@@ -1014,7 +1022,18 @@ async function screenResign() {
   screenGame.c4GameOver=true; screenGame.chessGameOver=true;
   await sb.from('game_sessions').update({status:'finished',state:JSON.stringify({resigned:true,resignedBy:currentUser.id})}).eq('id',screenGame.sid);
   toast('You resigned.');
-  document.getElementById('gs-body').innerHTML=`<div style="padding:32px;text-align:center;color:var(--text3)">You resigned this game.</div>`;
+  if (screenGame.type === 'connect4') renderScreenC4(null, null, false);
+  else renderScreenChess(null, null, false);
+}
+
+async function screenRematch() {
+  const { data } = await sb.from('game_sessions').select('challenger_id, opponent_id').eq('id', screenGame.sid).single();
+  if (!data) return;
+  const targetId = data.challenger_id === currentUser.id ? data.opponent_id : data.challenger_id;
+  const { data: targetUser } = await sb.from('users').select('*').eq('id', targetId).single();
+  if (targetUser) {
+    requestGame(targetUser, screenGame.type);
+  }
 }
 
 // ===== GAME NOTIFICATIONS =====
