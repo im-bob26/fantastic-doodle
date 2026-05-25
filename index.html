@@ -98,12 +98,7 @@ input, textarea { font-family: inherit; color: inherit; background: none; border
 .msg-mod-btn:hover { opacity: 1 !important; color: var(--danger); }
 .msg-date-divider { display: flex; align-items: center; gap: 12px; color: var(--text3); font-size: 11px; font-weight: 600; margin: 14px 0; }
 .msg-date-divider::before, .msg-date-divider::after { content: ''; flex: 1; height: 1px; background: var(--border); }
-/* TYPING */
-#typing-bar { padding: 2px 16px 4px; font-size: 12px; color: var(--text3); min-height: 20px; flex-shrink: 0; }
-.typing-dots span { display: inline-block; width: 4px; height: 4px; border-radius: 50%; background: var(--text3); margin: 0 1px; animation: typing-bounce 1.2s infinite; }
-.typing-dots span:nth-child(2) { animation-delay: 0.2s; }
-.typing-dots span:nth-child(3) { animation-delay: 0.4s; }
-@keyframes typing-bounce { 0%, 60%, 100% { transform: translateY(0); } 30% { transform: translateY(-4px); } }
+
 /* INPUT */
 .chat-input-area { padding: 8px 12px; padding-bottom: max(12px, env(safe-area-inset-bottom)); flex-shrink: 0; position: relative; }
 .input-toolbar { display: flex; gap: 4px; margin-bottom: 6px; }
@@ -369,14 +364,13 @@ input, textarea { font-family: inherit; color: inherit; background: none; border
       </div>
     </div>
     <div id="messages"><div class="empty-state"><div class="loading-spinner"></div></div></div>
-    <div id="typing-bar"></div>
     <div class="chat-input-area">
       <div class="input-toolbar">
         <button class="toolbar-btn" onclick="toggleEmojiPicker(event)">😊 Emoji</button>
       </div>
       <div class="emoji-picker" id="emoji-picker"></div>
       <div class="chat-input-box">
-        <textarea id="msg-input" placeholder="Message..." rows="1" oninput="autoResize(this); handleTyping()" onkeydown="handleInputKey(event)"></textarea>
+        <textarea id="msg-input" placeholder="Message..." rows="1" oninput="autoResize(this); handleInputChange()" onkeydown="handleInputKey(event)"></textarea>
         <div class="input-actions">
           <button class="emoji-btn" onclick="toggleEmojiPicker(event)">😊</button>
           <button class="send-btn" id="send-btn" onclick="sendMessage()" disabled>➤</button>
@@ -439,8 +433,8 @@ const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 let currentUser = null;
 let currentChannel = { id: 'general', name: 'general', type: 'channel' };
-let messagesSub = null, typingSub = null, presenceSub = null, gameNotifSub = null;
-let typingTimeout = null, typingUsers = {}, onlineUsers = {}, onlineUserData = {};
+let messagesSub = null, presenceSub = null, gameNotifSub = null;
+let onlineUsers = {}, onlineUserData = {};
 let friendRequests = [], friends = [], unreadDMs = {};
 let currentTab = 'channels', rightPanelMode = null;
 let notifications = [];
@@ -596,7 +590,7 @@ async function switchToChannel(ch) {
   if (clearBtn) clearBtn.style.display = isMod(currentUser) ? 'block' : 'none';
   
   renderSidebarList(); closeSidebar();
-  await loadMessages(); subscribeToMessages(); subscribeToTyping();
+  await loadMessages(); subscribeToMessages();
 }
 async function switchToDM(friend) {
   const dmId = getDMId(currentUser.id, friend.id);
@@ -605,7 +599,7 @@ async function switchToDM(friend) {
   document.getElementById('chat-channel-desc').textContent = 'Direct message';
   delete unreadDMs[dmId];
   renderSidebarList(); closeSidebar(); closePanel();
-  await loadMessages(); subscribeToMessages(); subscribeToTyping();
+  await loadMessages(); subscribeToMessages();
 }
 function getDMId(a, b) { return [a, b].sort().join('__dm__'); }
 
@@ -718,7 +712,6 @@ async function sendMessage() {
   input.value = ''; autoResize(input);
   document.getElementById('send-btn').disabled = true;
   await sb.from('messages').insert({ channel_id: currentChannel.id, user_id: currentUser.id, content });
-  await sb.from('typing').delete().eq('channel_id', currentChannel.id).eq('user_id', currentUser.id);
 }
 
 // ===== MODERATOR ACTIONS =====
@@ -1355,57 +1348,9 @@ function formatTimeAgo(ts) {
   return `${Math.floor(hrs/24)}d ago`;
 }
 
-// ===== TYPING & PRESENCE (IMPROVED) =====
-function subscribeToTyping() {
-  typingSub && sb.removeChannel(typingSub);
-  typingUsers = {}; updateTypingBar();
-  
-  // Use Presence for typing - much faster and more reliable than a table
-  typingSub = sb.channel(`typing:${currentChannel.id}`);
-  typingSub
-    .on('presence', { event: 'sync' }, () => {
-      const state = typingSub.presenceState();
-      typingUsers = {};
-      Object.values(state).forEach(presences => {
-        presences.forEach(p => {
-          if (p.user_id !== currentUser?.id && p.is_typing) {
-            typingUsers[p.user_id] = p.display_name;
-          }
-        });
-      });
-      updateTypingBar();
-    })
-    .subscribe();
-}
-
-async function handleTyping() {
+function handleInputChange() {
   const input = document.getElementById('msg-input');
   document.getElementById('send-btn').disabled = !input.value.trim();
-  if (!currentUser || !typingSub) return;
-  
-  clearTimeout(typingTimeout);
-  
-  // Track typing state via presence
-  typingSub.track({
-    user_id: currentUser.id,
-    display_name: currentUser.display_name,
-    is_typing: true
-  });
-  
-  typingTimeout = setTimeout(() => {
-    typingSub.track({
-      user_id: currentUser.id,
-      display_name: currentUser.display_name,
-      is_typing: false
-    });
-  }, 3000);
-}
-function updateTypingBar() {
-  const bar = document.getElementById('typing-bar');
-  const names = Object.values(typingUsers);
-  if (!names.length) { bar.innerHTML = ''; return; }
-  const label = names.length === 1 ? `${names[0]} is typing` : `${names.length} people are typing`;
-  bar.innerHTML = `<span style="display:flex;align-items:center;gap:6px">${label} <span class="typing-dots"><span></span><span></span><span></span></span></span>`;
 }
 
 // ===== PRESENCE (IMPROVED) =====
